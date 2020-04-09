@@ -87,6 +87,10 @@ vtetrisの参加者 (本セクションでは「ピア」と呼称する)同士�
 
 以下に、システムの簡易的なアーキテクチャ図を示す。以下の図はAlice、Bob、Carolがプレイヤーとして存在し、Carolがゲームオーバーになったことを示す。
 
+![mermaid-diagram-20200409141841](https://user-images.githubusercontent.com/16610193/78860417-204a8500-7a6d-11ea-96cd-de0b0fa2043b.png)
+
+<details><summary>code</summary><div>
+
 ```mermaid
 sequenceDiagram
   Alice->>+Bob: Push board status
@@ -96,6 +100,8 @@ sequenceDiagram
   Carol->>+Alice: Send GameOver event
   Carol->>+Bob: Send GameOver event
 ```
+
+</div></details>
 
 vtetrisには中央サーバは存在しない。各ピアがサーバ及びクライントになることで、自律分散型のテトリスネットワークを構成する。
 各ピアは他の全てのピアとコネクションを確立し、自身のミノ・ボードの状態を他の全てのピアにプッシュする。
@@ -127,6 +133,10 @@ vtetrisにおいて、セッションの参加者は「フォロワー」と呼�
 
 以下に、リーダーとフォロワーの通信シーケンスを示す。なお、図ではフォロワーのピアは2つだけ書かれているが、実際は複数存在する (4まで) 可能性がある。
 
+![mermaid-diagram-20200409141902](https://user-images.githubusercontent.com/16610193/78860403-188ae080-7a6d-11ea-9682-981813650feb.png)
+
+<details><summary>code</summary><div>
+
 ```mermaid
 sequenceDiagram
   Alice(Leader)->>Alice(Leader): Create session and input the number of participants (e.g. 3) and know its address, then tell Bob and Carol the address
@@ -143,6 +153,8 @@ sequenceDiagram
   Carol-->>Alice(Leader): Send Ready
   Alice(Leader)->>Alice(Leader): Because every peer is ready, starts game
 ```
+
+</div></details>
 
 ### 認証
 
@@ -214,6 +226,10 @@ message SendGameOverRequest {
   string peer_id = 1;
 }
 ```
+
+### その他
+
+* 視認性のために、ミノには前述の色をつけて描画することを必須とする。
 
 ## 機能拡張
 
