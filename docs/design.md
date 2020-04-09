@@ -250,8 +250,6 @@ message SendGameOverRequest {
 vtetrisはオープンソースソフトウェアとしてGitHubを利用して公開し、ライセンスはMITとする。
 公開用のリポジトリには [github.com/vkg/tetris](https://github.com/vkg/tetris) を使用する。
 
-## 脚注
-
 [^1]: https://tetris.fandom.com/wiki/Tetris_Guideline
 [^2]: https://en.wikipedia.org/wiki/ANSI_escape_code#8-bit
 [^3]: https://tetris.fandom.com/wiki/Scoring
