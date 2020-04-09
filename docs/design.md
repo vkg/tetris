@@ -177,9 +177,9 @@ service Vtetris {
 
 message SendMetaRequest {
   message Peer {
-  	string id = 1;
-  	string address = 2;
-  	int64 port = 3;
+    string id = 1;
+    string address = 2;
+    int64 port = 3;
   }
   repeated Peer peers = 1;
 }
@@ -208,14 +208,14 @@ message SendUpdateRequest {
     MINO_L = 6;
   }
   message Block {
-  	int64 x =1; // coordinate
-  	int64 y = 2;
-  	Color color = 3;
+    int64 x =1; // coordinate
+    int64 y = 2;
+    Color color = 3;
   }
   message Mino {
-  	Mino mino = 1;
-  	int64 x = 2;
-  	int64 y = 3;
+    Mino mino = 1;
+    int64 x = 2;
+    int64 y = 3;
   }
   string peer_id = 1;
   repeated Block blocks = 2;
