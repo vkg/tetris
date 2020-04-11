@@ -13,8 +13,11 @@ func TestSSHClient_SendCommand(t *testing.T) {
 	pubkey := defaultPublicKey(t).Marshal()
 	c := &ssh.ServerConfig{
 		PublicKeyCallback: func(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
+			if conn.User() != "test" {
+				t.Errorf("unexpected user %s", conn.User())
+			}
 			if 0 != bytes.Compare(pubkey, key.Marshal()) {
-				return nil, xerrors.New("unauthorized user " + conn.User())
+				return nil, xerrors.New("unauthorized user")
 			}
 			return nil, nil
 		},
@@ -31,7 +34,7 @@ func TestSSHClient_SendCommand(t *testing.T) {
 		}
 	})
 
-	cli, err := NewSSHClient(addr.String(), defaultPrivateKey(t))
+	cli, err := NewSSHClient("test", addr.String(), defaultPrivateKey(t))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -11,13 +11,13 @@ type SSHClient struct {
 }
 
 // NewSSHClient returns a new SSHClient
-func NewSSHClient(addr string, key ssh.Signer) (*SSHClient, error) {
+func NewSSHClient(user, addr string, key ssh.Signer) (*SSHClient, error) {
 	var auth []ssh.AuthMethod
 	auth = append(auth, ssh.PublicKeys(key))
 
 	// set ssh config.
 	sshConfig := &ssh.ClientConfig{
-		User:            "test",
+		User:            user,
 		Auth:            auth,
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
