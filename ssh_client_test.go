@@ -2,14 +2,14 @@ package tetris
 
 import (
 	"bytes"
-	"fmt"
+	"io"
 	"testing"
 
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/xerrors"
 )
 
-func TestSSHClient_SendCommand(t *testing.T) {
+func TestSSHClient_SendRecv(t *testing.T) {
 	pubkey := defaultPublicKey(t).Marshal()
 	c := &ssh.ServerConfig{
 		PublicKeyCallback: func(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
@@ -23,33 +23,46 @@ func TestSSHClient_SendCommand(t *testing.T) {
 		},
 	}
 
-	addr := testSSHServer(t, c, func(cmd string) string {
-		switch cmd {
-		case "ping":
-			return "pong"
-		case "fin":
-			return "bye"
-		default:
-			return fmt.Sprintf("unknown command [%s]", cmd)
+	addr := testSSHServer(t, c, func(r *Packet, w io.Writer) bool {
+		res := func(s string) {
+			p := Packet{Data: []byte(s)}
+			if err := p.write(w); err != nil {
+				t.Fatal(err)
+			}
 		}
+		switch string(r.Data) {
+		case "ping":
+			res("pong")
+			return false
+		case "fin":
+			res("bye")
+			return true
+		}
+		res("unknown")
+		return false
 	})
 
 	cli, err := NewSSHClient("test", addr.String(), defaultPrivateKey(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := cli.SendCommand("ping")
+	defer cli.Close()
+
+	sess, err := cli.NewSession()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out != "pong" {
-		t.Error("unexpected response")
+
+	res, err := sess.SendAndRecv(&Packet{
+		Data: []byte("ping"),
+	})
+	if string(res.Data) != "pong" {
+		t.Error("unexpected")
 	}
-	out, err = cli.SendCommand("fin")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if out != "bye" {
-		t.Error("unexpected response")
+	res, err = sess.SendAndRecv(&Packet{
+		Data: []byte("fin"),
+	})
+	if string(res.Data) != "bye" {
+		t.Error("unexpected")
 	}
 }

@@ -1,6 +1,7 @@
 package tetris
 
 import (
+	"io"
 	"net"
 	"testing"
 
@@ -69,7 +70,7 @@ kfXuO24a1RHL9rUNAAAAD3Jlcm9yZXJvQFBDMTgzMwECAw==
 	testHostPubKey = `ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDT9Wq2mOViU/Lc/Bd7Uo/o4L9R3qhpyPa1h01JbBmznTwm36g3z8qmo0RS1estwFD3c3esOLATXhB6J4lchufSSjequhQK005UU6+D38FBmX9tPsfI8VMY3NXakSsFd3R6WZDnaqo2vLFcHQDjd7kt6KuY7GXCDv2jJXaVvdEek5ftvyjDoSuGZEsplgCDuwxfLlSdseVMCshp6XUhC2AK3LfBl0Gj/MrMW3SGbVMJrXE5ImAfteK9dAaZsJ+WioiEJz2K6jlVrbbut0OSNliDZasWZn8+OeEwvv3mPRlfFYtlJK3TreaosxSrZPk5Qq5m3G/iYe163oAKeqKh27v3 rerorero@PC1833`
 )
 
-type sshHandler func(request string) string
+type sshHandler func(request *Packet, w io.Writer) bool
 
 func defaultPrivateKey(t *testing.T) ssh.Signer {
 	t.Helper()
@@ -133,24 +134,27 @@ func testSSHServer(t *testing.T, config *ssh.ServerConfig, handler sshHandler) n
 
 			go func(ch ssh.Channel, requests <-chan *ssh.Request) {
 				defer ch.Close()
+
 				req := <-requests
+
 				if req.WantReply {
 					req.Reply(true, nil)
 				}
 
-				if req.Type != "exec" {
-					ch.Write([]byte("request type '" + req.Type + "' is not 'exec'\r\n"))
+				if req.Type != "shell" {
+					ch.Write([]byte("request type '" + req.Type + "' is not 'shell'\r\n"))
 					return
 				}
 
-				// exec payload: SSH_MSG_CHANNEL_REQUEST
-				// uint32    packet_length
-				// byte      padding_length
-				// byte[n1]  payload; n1 = packet_length - padding_length - 1
-				// byte[n2]  random padding; n2 = padding_length
-				cmd := string(req.Payload[4:])
-				res := handler(cmd)
-				ch.Write([]byte(res))
+				for {
+					p, err := readPacket(ch)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if handler(p, ch) {
+						break
+					}
+				}
 			}(ch, requests)
 		}
 	}()

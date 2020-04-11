@@ -1,13 +1,29 @@
 package tetris
 
 import (
+	"encoding/binary"
+	"io"
+
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/xerrors"
 )
 
 // SSHClient is a ssh client
 type SSHClient struct {
-	client *ssh.Client
+	client   *ssh.Client
+	sessions []*SSHSession
+}
+
+// SSHSession is a ssh session
+type SSHSession struct {
+	session *ssh.Session
+	writer  io.WriteCloser
+	reader  io.Reader
+}
+
+// TODO: fix it
+type Packet struct {
+	Data []byte
 }
 
 // NewSSHClient returns a new SSHClient
@@ -31,24 +47,85 @@ func NewSSHClient(user, addr string, key ssh.Signer) (*SSHClient, error) {
 		client: client,
 	}, nil
 }
+func (c *SSHClient) Close() {
+	for _, s := range c.sessions {
+		s.session.Close()
+	}
+	c.client.Close()
+}
 
-// SendCommand sends a command as an exec request
-func (c *SSHClient) SendCommand(cmd string) (string, error) {
+// NewSession returns a new SSH session
+func (c *SSHClient) NewSession() (*SSHSession, error) {
 	session, err := c.client.NewSession()
 	if err != nil {
-		return "", xerrors.Errorf("failed to NewSession: %w", err)
-	}
-	defer session.Close()
-
-	out, err := session.CombinedOutput(cmd)
-	switch err.(type) {
-	case *ssh.ExitMissingError:
-		// todo: how can i fix?
-	case *ssh.ExitError:
-		// todo: how can i fix?
-	default:
-		return "", xerrors.Errorf("failed to send SSH command: %w", err)
+		return nil, xerrors.Errorf("failed to NewSession: %w", err)
 	}
 
-	return string(out), nil
+	in, err := session.StdinPipe()
+	if err != nil {
+		session.Close()
+		return nil, xerrors.Errorf("failed to new pipe: %w", err)
+	}
+	out, err := session.StdoutPipe()
+	if err != nil {
+		session.Close()
+		return nil, xerrors.Errorf("failed to new pipe: %w", err)
+	}
+
+	if err := session.Shell(); err != nil {
+		session.Close()
+		return nil, xerrors.Errorf("failed to start session: %w", err)
+	}
+	sess := &SSHSession{
+		session: session,
+		writer:  in,
+		reader:  out,
+	}
+
+	c.sessions = append(c.sessions, sess)
+
+	return sess, nil
+}
+
+func (s *SSHSession) Send(p *Packet) error {
+	return p.write(s.writer)
+}
+
+func (s *SSHSession) Recv() (*Packet, error) {
+	return readPacket(s.reader)
+}
+
+func (s *SSHSession) SendAndRecv(p *Packet) (*Packet, error) {
+	if err := p.write(s.writer); err != nil {
+		return nil, err
+	}
+	return readPacket(s.reader)
+}
+
+func (p *Packet) write(w io.Writer) error {
+	header := make([]byte, 4) // TODO: define protocol
+	binary.BigEndian.PutUint32(header, uint32(len(p.Data)))
+	if _, err := w.Write(header); err != nil {
+		return xerrors.Errorf("failed to write header: %w", err)
+	}
+	if _, err := w.Write(p.Data); err != nil {
+		return xerrors.Errorf("failed to write data: %w", err)
+	}
+	return nil
+}
+
+func readPacket(r io.Reader) (*Packet, error) {
+	header := make([]byte, 4) // TODO: define protocol
+	if _, err := r.Read(header); err != nil {
+		return nil, xerrors.Errorf("failed to read header: %w", err)
+	}
+
+	len := binary.BigEndian.Uint32(header)
+	buf := make([]byte, len)
+	if _, err := r.Read(buf); err != nil {
+		return nil, xerrors.Errorf("failed to read data: %w", err)
+	}
+	return &Packet{
+		Data: buf,
+	}, nil
 }
