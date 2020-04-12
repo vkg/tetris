@@ -1,35 +1,29 @@
 package tetris
 
 import (
-	"encoding/binary"
+	"context"
 	"io"
 	"sync"
 
+	"go.uber.org/zap"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/xerrors"
 )
 
+type clientSession interface {
+	Close() error
+}
+
 // SSHClient is a ssh client
 type SSHClient struct {
 	client   *ssh.Client
-	sessions map[string]*SSHSession
-	sessMux  sync.RWMutex
-}
-
-// SSHSession is a ssh session
-type SSHSession struct {
-	session *ssh.Session
-	writer  io.WriteCloser
-	reader  io.Reader
-}
-
-// TODO: fix it
-type Packet struct {
-	Data []byte
+	sessions map[string]clientSession
+	mux      sync.RWMutex
+	logger   *zap.Logger
 }
 
 // NewSSHClient returns a new SSHClient
-func NewSSHClient(user, addr string, key ssh.Signer) (*SSHClient, error) {
+func NewSSHClient(user, addr string, key ssh.Signer, logger *zap.Logger) (*SSHClient, error) {
 	var auth []ssh.AuthMethod
 	auth = append(auth, ssh.PublicKeys(key))
 
@@ -46,99 +40,87 @@ func NewSSHClient(user, addr string, key ssh.Signer) (*SSHClient, error) {
 
 	return &SSHClient{
 		client:   client,
-		sessions: make(map[string]*SSHSession),
-		sessMux:  sync.RWMutex{},
+		sessions: make(map[string]clientSession),
+		mux:      sync.RWMutex{},
+		logger:   logger,
 	}, nil
 }
+
 func (c *SSHClient) Close() {
-	c.sessMux.Lock()
-	defer c.sessMux.Unlock()
+	c.mux.Lock()
+	defer c.mux.Unlock()
 	for _, s := range c.sessions {
-		s.session.Close()
+		s.Close()
 	}
-	c.sessions = make(map[string]*SSHSession)
+	c.sessions = make(map[string]clientSession)
 	c.client.Close()
 }
 
-// NewSession returns a new SSH session
-func (c *SSHClient) NewSession(name string) (*SSHSession, error) {
-	c.sessMux.Lock()
-	defer c.sessMux.Unlock()
+// NewStream returns a new SSH stream session
+func (c *SSHClient) NewStreamSession(ctx context.Context, name string, sendQueSize, recvQueSize int) (*ClientStream, error) {
+	logger := c.logger.With(zap.String("session", name))
 
-	if _, ok := c.sessions[name]; ok {
-		return nil, xerrors.Errorf("session %s has already existed", name)
-	}
+	c.mux.Lock()
+	defer c.mux.Unlock()
 
-	session, err := c.client.NewSession()
+	session, in, out, err := c.newSession(name)
 	if err != nil {
-		return nil, xerrors.Errorf("failed to NewSession: %w", err)
+		return nil, err
 	}
 
-	in, err := session.StdinPipe()
-	if err != nil {
-		session.Close()
-		return nil, xerrors.Errorf("failed to new pipe: %w", err)
-	}
-	out, err := session.StdoutPipe()
-	if err != nil {
-		session.Close()
-		return nil, xerrors.Errorf("failed to new pipe: %w", err)
-	}
+	sess := newClientStream(session, in, out, sendQueSize, recvQueSize)
 
-	if err := session.Start(name); err != nil {
-		session.Close()
-		return nil, xerrors.Errorf("failed to start session: %w", err)
-	}
-	sess := &SSHSession{
-		session: session,
-		writer:  in,
-		reader:  out,
-	}
+	go func() {
+		if sess.StartStream(ctx, logger); err != nil {
+			logger.Error("client stream results in fail", zap.Error(err))
+		}
+	}()
 
 	c.sessions[name] = sess
 
 	return sess, nil
 }
 
-func (s *SSHSession) Send(p *Packet) error {
-	return p.write(s.writer)
-}
+// NewUnary returns a new SSH unary client session
+func (c *SSHClient) NewUnarySession(name string) (*ClientUnary, error) {
+	c.mux.Lock()
+	defer c.mux.Unlock()
 
-func (s *SSHSession) Recv() (*Packet, error) {
-	return readPacket(s.reader)
-}
-
-func (s *SSHSession) SendAndRecv(p *Packet) (*Packet, error) {
-	if err := p.write(s.writer); err != nil {
+	session, in, out, err := c.newSession(name)
+	if err != nil {
 		return nil, err
 	}
-	return readPacket(s.reader)
+
+	sess := newClientUnary(session, in, out)
+	c.sessions[name] = sess
+	return sess, nil
 }
 
-func (p *Packet) write(w io.Writer) error {
-	header := make([]byte, 4) // TODO: define protocol
-	binary.BigEndian.PutUint32(header, uint32(len(p.Data)))
-	if _, err := w.Write(header); err != nil {
-		return xerrors.Errorf("failed to write header: %w", err)
-	}
-	if _, err := w.Write(p.Data); err != nil {
-		return xerrors.Errorf("failed to write data: %w", err)
-	}
-	return nil
-}
-
-func readPacket(r io.Reader) (*Packet, error) {
-	header := make([]byte, 4) // TODO: define protocol
-	if _, err := r.Read(header); err != nil {
-		return nil, xerrors.Errorf("failed to read header: %w", err)
+func (c *SSHClient) newSession(name string) (*ssh.Session, io.WriteCloser, io.Reader, error) {
+	if _, ok := c.sessions[name]; ok {
+		return nil, nil, nil, xerrors.Errorf("session %s has already existed", name)
 	}
 
-	len := binary.BigEndian.Uint32(header)
-	buf := make([]byte, len)
-	if _, err := r.Read(buf); err != nil {
-		return nil, xerrors.Errorf("failed to read data: %w", err)
+	session, err := c.client.NewSession()
+	if err != nil {
+		return nil, nil, nil, xerrors.Errorf("failed to NewSession: %w", err)
 	}
-	return &Packet{
-		Data: buf,
-	}, nil
+
+	in, err := session.StdinPipe()
+	if err != nil {
+		session.Close()
+		return nil, nil, nil, xerrors.Errorf("failed to new pipe: %w", err)
+	}
+	out, err := session.StdoutPipe()
+	if err != nil {
+		session.Close()
+		return nil, nil, nil, xerrors.Errorf("failed to new pipe: %w", err)
+	}
+
+	if err := session.Start(name); err != nil {
+		session.Close()
+		return nil, nil, nil, xerrors.Errorf("failed to start session: %w", err)
+	}
+
+	return session, in, out, nil
 }

@@ -5,6 +5,7 @@ import (
 	"io"
 	"testing"
 
+	"go.uber.org/zap"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/xerrors"
 )
@@ -27,7 +28,7 @@ func TestSSHClient_SendRecv(t *testing.T) {
 		"test": func(r *Packet, w io.Writer) bool {
 			res := func(s string) {
 				p := Packet{Data: []byte(s)}
-				if err := p.write(w); err != nil {
+				if err := p.Write(w); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -45,13 +46,13 @@ func TestSSHClient_SendRecv(t *testing.T) {
 	}
 	addr := testSSHServer(t, c, handlers)
 
-	cli, err := NewSSHClient("test", addr.String(), defaultPrivateKey(t))
+	cli, err := NewSSHClient("test", addr.String(), defaultPrivateKey(t), zap.NewNop())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer cli.Close()
 
-	sess, err := cli.NewSession("test")
+	sess, err := cli.NewUnarySession("test")
 	if err != nil {
 		t.Fatal(err)
 	}

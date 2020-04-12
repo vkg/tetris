@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/xerrors"
 )
 
 const (
@@ -90,15 +91,19 @@ func defaultPublicKey(t *testing.T) ssh.PublicKey {
 	return key
 }
 
-func testSSHServer(t *testing.T, config *ssh.ServerConfig, handlers map[string]sshHandler) net.Addr {
+func defaultHostKey(t *testing.T) ssh.Signer {
 	t.Helper()
-
 	hostSigner, err := ssh.ParsePrivateKey([]byte(testHostKey))
 	if err != nil {
 		t.Fatal(err)
 	}
+	return hostSigner
+}
 
-	config.AddHostKey(hostSigner)
+func testSSHServer(t *testing.T, config *ssh.ServerConfig, handlers map[string]sshHandler) net.Addr {
+	t.Helper()
+
+	config.AddHostKey(defaultHostKey(t))
 
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -159,7 +164,10 @@ func testSSHServer(t *testing.T, config *ssh.ServerConfig, handlers map[string]s
 				}
 
 				for {
-					p, err := readPacket(ch)
+					p, err := ReadPacket(ch)
+					if xerrors.Is(err, io.EOF) {
+						break
+					}
 					if err != nil {
 						t.Fatal(err)
 					}
