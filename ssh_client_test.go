@@ -23,24 +23,27 @@ func TestSSHClient_SendRecv(t *testing.T) {
 		},
 	}
 
-	addr := testSSHServer(t, c, func(r *Packet, w io.Writer) bool {
-		res := func(s string) {
-			p := Packet{Data: []byte(s)}
-			if err := p.write(w); err != nil {
-				t.Fatal(err)
+	handlers := map[string]sshHandler{
+		"test": func(r *Packet, w io.Writer) bool {
+			res := func(s string) {
+				p := Packet{Data: []byte(s)}
+				if err := p.write(w); err != nil {
+					t.Fatal(err)
+				}
 			}
-		}
-		switch string(r.Data) {
-		case "ping":
-			res("pong")
+			switch string(r.Data) {
+			case "ping":
+				res("pong")
+				return false
+			case "fin":
+				res("bye")
+				return true
+			}
+			res("unknown")
 			return false
-		case "fin":
-			res("bye")
-			return true
-		}
-		res("unknown")
-		return false
-	})
+		},
+	}
+	addr := testSSHServer(t, c, handlers)
 
 	cli, err := NewSSHClient("test", addr.String(), defaultPrivateKey(t))
 	if err != nil {
@@ -48,7 +51,7 @@ func TestSSHClient_SendRecv(t *testing.T) {
 	}
 	defer cli.Close()
 
-	sess, err := cli.NewSession()
+	sess, err := cli.NewSession("test")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -3,6 +3,7 @@ package tetris
 import (
 	"encoding/binary"
 	"io"
+	"sync"
 
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/xerrors"
@@ -11,7 +12,8 @@ import (
 // SSHClient is a ssh client
 type SSHClient struct {
 	client   *ssh.Client
-	sessions []*SSHSession
+	sessions map[string]*SSHSession
+	sessMux  sync.RWMutex
 }
 
 // SSHSession is a ssh session
@@ -31,7 +33,6 @@ func NewSSHClient(user, addr string, key ssh.Signer) (*SSHClient, error) {
 	var auth []ssh.AuthMethod
 	auth = append(auth, ssh.PublicKeys(key))
 
-	// set ssh config.
 	sshConfig := &ssh.ClientConfig{
 		User:            user,
 		Auth:            auth,
@@ -44,18 +45,30 @@ func NewSSHClient(user, addr string, key ssh.Signer) (*SSHClient, error) {
 	}
 
 	return &SSHClient{
-		client: client,
+		client:   client,
+		sessions: make(map[string]*SSHSession),
+		sessMux:  sync.RWMutex{},
 	}, nil
 }
 func (c *SSHClient) Close() {
+	c.sessMux.Lock()
+	defer c.sessMux.Unlock()
 	for _, s := range c.sessions {
 		s.session.Close()
 	}
+	c.sessions = make(map[string]*SSHSession)
 	c.client.Close()
 }
 
 // NewSession returns a new SSH session
-func (c *SSHClient) NewSession() (*SSHSession, error) {
+func (c *SSHClient) NewSession(name string) (*SSHSession, error) {
+	c.sessMux.Lock()
+	defer c.sessMux.Unlock()
+
+	if _, ok := c.sessions[name]; ok {
+		return nil, xerrors.Errorf("session %s has already existed", name)
+	}
+
 	session, err := c.client.NewSession()
 	if err != nil {
 		return nil, xerrors.Errorf("failed to NewSession: %w", err)
@@ -72,7 +85,7 @@ func (c *SSHClient) NewSession() (*SSHSession, error) {
 		return nil, xerrors.Errorf("failed to new pipe: %w", err)
 	}
 
-	if err := session.Shell(); err != nil {
+	if err := session.Start(name); err != nil {
 		session.Close()
 		return nil, xerrors.Errorf("failed to start session: %w", err)
 	}
@@ -82,7 +95,7 @@ func (c *SSHClient) NewSession() (*SSHSession, error) {
 		reader:  out,
 	}
 
-	c.sessions = append(c.sessions, sess)
+	c.sessions[name] = sess
 
 	return sess, nil
 }

@@ -90,13 +90,14 @@ func defaultPublicKey(t *testing.T) ssh.PublicKey {
 	return key
 }
 
-func testSSHServer(t *testing.T, config *ssh.ServerConfig, handler sshHandler) net.Addr {
+func testSSHServer(t *testing.T, config *ssh.ServerConfig, handlers map[string]sshHandler) net.Addr {
 	t.Helper()
 
 	hostSigner, err := ssh.ParsePrivateKey([]byte(testHostKey))
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	config.AddHostKey(hostSigner)
 
 	l, err := net.Listen("tcp", "127.0.0.1:0")
@@ -141,9 +142,20 @@ func testSSHServer(t *testing.T, config *ssh.ServerConfig, handler sshHandler) n
 					req.Reply(true, nil)
 				}
 
-				if req.Type != "shell" {
-					ch.Write([]byte("request type '" + req.Type + "' is not 'shell'\r\n"))
+				if req.Type != "exec" {
+					ch.Write([]byte("request type '" + req.Type + "' is not 'exec'\r\n"))
 					return
+				}
+
+				// exec payload: SSH_MSG_CHANNEL_REQUEST
+				// uint32    packet_length
+				// byte      padding_length
+				// byte[n1]  payload; n1 = packet_length - padding_length - 1
+				// byte[n2]  random padding; n2 = padding_length
+				cmd := string(req.Payload[4:])
+				handler, ok := handlers[cmd]
+				if !ok {
+					t.Fatal("handler not found: %s" + cmd)
 				}
 
 				for {
