@@ -71,7 +71,7 @@ func Test_newServerStream(t *testing.T) {
 
 	go func() {
 		if err := server.Listen(context.Background()); err != nil {
-			t.Fatal(err)
+			panic(err)
 		}
 	}()
 
@@ -95,7 +95,7 @@ func Test_newServerStream(t *testing.T) {
 		go func(r string) {
 			defer wg.Done()
 			if err := sess.Send(&Packet{Data: []byte(r)}); err != nil {
-				t.Fatal(err)
+				panic(err)
 			}
 		}(r)
 
@@ -104,11 +104,11 @@ func Test_newServerStream(t *testing.T) {
 			defer wg.Done()
 			res1, err := sess.Recv()
 			if err != nil {
-				t.Fatal(err)
+				panic(err)
 			}
 			res2, err := sess.Recv()
 			if err != nil {
-				t.Fatal(err)
+				panic(err)
 			}
 			mux.Lock()
 			defer mux.Unlock()
