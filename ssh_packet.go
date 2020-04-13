@@ -26,7 +26,7 @@ func (p *Packet) Write(w io.Writer) error {
 	return nil
 }
 
-// ReadPacker reads Packet data from Reader
+// ReadPacket reads Packet data from Reader
 func ReadPacket(r io.Reader) (*Packet, error) {
 	header := make([]byte, 4) // TODO: define protocol
 	if _, err := r.Read(header); err != nil {
