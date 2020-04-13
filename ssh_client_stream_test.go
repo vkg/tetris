@@ -63,7 +63,7 @@ func Test_newClientStream(t *testing.T) {
 		go func(r string) {
 			defer wg.Done()
 			if err := sess.Send(&Packet{Data: []byte(r)}); err != nil {
-				t.Fatal(err)
+				panic(err)
 			}
 		}(r)
 
@@ -72,11 +72,11 @@ func Test_newClientStream(t *testing.T) {
 			defer wg.Done()
 			res1, err := sess.Recv()
 			if err != nil {
-				t.Fatal(err)
+				panic(err)
 			}
 			res2, err := sess.Recv()
 			if err != nil {
-				t.Fatal(err)
+				panic(err)
 			}
 			mux.Lock()
 			defer mux.Unlock()

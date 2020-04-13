@@ -118,12 +118,12 @@ func testSSHServer(t *testing.T, config *ssh.ServerConfig, handlers map[string]s
 	go func() {
 		conn, err := l.Accept()
 		if err != nil {
-			t.Fatal(err)
+			panic(err)
 		}
 
 		sshConn, chans, _, err := ssh.NewServerConn(conn, config)
 		if err != nil {
-			t.Fatal(err)
+			panic(err)
 		}
 		defer sshConn.Close()
 
@@ -160,7 +160,7 @@ func testSSHServer(t *testing.T, config *ssh.ServerConfig, handlers map[string]s
 				cmd := string(req.Payload[4:])
 				handler, ok := handlers[cmd]
 				if !ok {
-					t.Fatal("handler not found: %s" + cmd)
+					panic("handler not found: " + cmd)
 				}
 
 				for {
@@ -169,7 +169,7 @@ func testSSHServer(t *testing.T, config *ssh.ServerConfig, handlers map[string]s
 						break
 					}
 					if err != nil {
-						t.Fatal(err)
+						panic(err)
 					}
 					if handler(p, ch) {
 						break
