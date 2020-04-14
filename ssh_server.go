@@ -16,7 +16,7 @@ type SSHUser struct {
 }
 
 type KeyRegister interface {
-	Find(key ssh.PublicKey) (SSHUser, error)
+	Find(conn ssh.ConnMetadata, key ssh.PublicKey) (SSHUser, error)
 }
 
 type ServerHandler func(ctx context.Context, stream *ServerStream)
@@ -180,7 +180,7 @@ func (s *SSHServer) acceptConnection(ctx context.Context, sshConn *ssh.ServerCon
 }
 
 func (s *SSHServer) publicKeyCallback(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
-	user, err := s.keyRegister.Find(key)
+	user, err := s.keyRegister.Find(conn, key)
 	if err != nil {
 		s.logger.Info("unknown user", zap.Error(err))
 		return nil, xerrors.New("unauthorized")

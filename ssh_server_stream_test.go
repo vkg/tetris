@@ -13,11 +13,11 @@ import (
 )
 
 type mockedKeyRegister struct {
-	FindMock func(key ssh.PublicKey) (SSHUser, error)
+	FindMock func(conn ssh.ConnMetadata, key ssh.PublicKey) (SSHUser, error)
 }
 
-func (m *mockedKeyRegister) Find(key ssh.PublicKey) (SSHUser, error) {
-	return m.FindMock(key)
+func (m *mockedKeyRegister) Find(conn ssh.ConnMetadata, key ssh.PublicKey) (SSHUser, error) {
+	return m.FindMock(conn, key)
 }
 
 func Test_newServerStream(t *testing.T) {
@@ -27,7 +27,7 @@ func Test_newServerStream(t *testing.T) {
 	}
 
 	keyRegister := &mockedKeyRegister{
-		FindMock: func(key ssh.PublicKey) (SSHUser, error) {
+		FindMock: func(conn ssh.ConnMetadata, key ssh.PublicKey) (SSHUser, error) {
 			return testUser, nil
 		},
 	}
