@@ -38,6 +38,7 @@ func (ss *ServerStream) startStream(ctx context.Context, logger *zap.Logger) err
 	logger.Debug("start new stream")
 
 	fin := make(chan struct{})
+	defer close(fin)
 
 	// start watching request
 	eg.Go(func() error {
