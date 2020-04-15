@@ -34,6 +34,10 @@ func (s *Server) Serve(ctx context.Context) error {
 	return s.sshServer.Listen(ctx)
 }
 
+func (s *Server) Close() {
+	s.sshServer.Close()
+}
+
 func (s *Server) cowsayHandler(ctx context.Context, stream *ServerStream) {
 	for {
 		var req CowsayRequest

@@ -8,6 +8,7 @@ import (
 
 	"go.uber.org/zap"
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 )
 
@@ -78,28 +79,20 @@ func isClosedConnError(err error) bool {
 
 // Listen starts serving SSH server
 func (s *SSHServer) Listen(ctx context.Context) error {
-	if s.cancelFunc != nil {
-		return xerrors.New("already started")
-	}
-	ctx, s.cancelFunc = context.WithCancel(ctx)
-
 	s.logger.Info("start listening", zap.String("addr", s.listener.Addr().String()))
 
-	fin := make(chan error)
-
-	go func() {
+	eg, ctx := errgroup.WithContext(ctx)
+	eg.Go(func() error {
 		for {
 			conn, err := s.listener.Accept()
 			s.logger.Debug("accept tcp", zap.Any("conn", conn), zap.Error(err))
 			switch {
 			case isClosedConnError(err):
 				s.logger.Info("failed to accept due to closed connection", zap.Error(err))
-				fin <- nil
-				return
+				return nil
 			case err != nil:
 				s.logger.Error("failed to accept", zap.Error(err))
-				fin <- err
-				return
+				return err
 			}
 
 			sshConn, chans, _, err := ssh.NewServerConn(conn, s.config)
@@ -112,18 +105,11 @@ func (s *SSHServer) Listen(ctx context.Context) error {
 				s.acceptConnection(ctx, sshConn, chans)
 			}(sshConn, chans)
 		}
-	}()
+	})
 
-	select {
-	case err := <-fin:
-		s.logger.Debug("finished to accept", zap.Error(err))
-		close(fin)
-		return err
-	case <-ctx.Done():
-		s.logger.Debug("server context canceled")
-		close(fin)
-		return nil
-	}
+	err := eg.Wait()
+	s.logger.Debug("finished to accept", zap.Error(err))
+	return err
 }
 
 func (s *SSHServer) acceptConnection(ctx context.Context, sshConn *ssh.ServerConn, chans <-chan ssh.NewChannel) {
@@ -215,9 +201,6 @@ func (s *SSHServer) publicKeyCallback(conn ssh.ConnMetadata, key ssh.PublicKey) 
 }
 
 func (s *SSHServer) Close() {
-	if s.cancelFunc != nil {
-		s.cancelFunc()
-	}
 	if s.listener != nil {
 		s.listener.Close()
 	}

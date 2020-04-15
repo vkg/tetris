@@ -63,6 +63,7 @@ func main() {
 	}
 
 	cancel()
+	server.Close()
 
 	if err := eg.Wait(); err != nil {
 		logger.Error("server results in failure", zap.Error(err))
