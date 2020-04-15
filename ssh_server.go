@@ -83,26 +83,46 @@ func (s *SSHServer) Listen(ctx context.Context) error {
 	}
 	ctx, s.cancelFunc = context.WithCancel(ctx)
 
-	for {
-		conn, err := s.listener.Accept()
-		switch {
-		case isClosedConnError(err):
-			s.logger.Info("failed to accept due to closed connection", zap.Error(err))
-			return nil
-		case err != nil:
-			s.logger.Error("failed to accept", zap.Error(err))
-			return err
-		}
+	s.logger.Info("start listening", zap.String("addr", s.listener.Addr().String()))
 
-		sshConn, chans, _, err := ssh.NewServerConn(conn, s.config)
-		if err != nil {
-			s.logger.Error("failed to new server conn", zap.Error(err))
-			continue
-		}
+	fin := make(chan error)
 
-		go func(sshConn *ssh.ServerConn, chans <-chan ssh.NewChannel) {
-			s.acceptConnection(ctx, sshConn, chans)
-		}(sshConn, chans)
+	go func() {
+		for {
+			conn, err := s.listener.Accept()
+			s.logger.Debug("accept tcp", zap.Any("conn", conn), zap.Error(err))
+			switch {
+			case isClosedConnError(err):
+				s.logger.Info("failed to accept due to closed connection", zap.Error(err))
+				fin <- nil
+				return
+			case err != nil:
+				s.logger.Error("failed to accept", zap.Error(err))
+				fin <- err
+				return
+			}
+
+			sshConn, chans, _, err := ssh.NewServerConn(conn, s.config)
+			if err != nil {
+				s.logger.Error("failed to new server conn", zap.Error(err))
+				continue
+			}
+
+			go func(sshConn *ssh.ServerConn, chans <-chan ssh.NewChannel) {
+				s.acceptConnection(ctx, sshConn, chans)
+			}(sshConn, chans)
+		}
+	}()
+
+	select {
+	case err := <-fin:
+		s.logger.Debug("finished to accept", zap.Error(err))
+		close(fin)
+		return err
+	case <-ctx.Done():
+		s.logger.Debug("server context canceled")
+		close(fin)
+		return nil
 	}
 }
 
@@ -177,9 +197,12 @@ func (s *SSHServer) acceptConnection(ctx context.Context, sshConn *ssh.ServerCon
 
 		}(ch, requests)
 	}
+
+	logger.Info("closed the connection")
 }
 
 func (s *SSHServer) publicKeyCallback(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
+	s.logger.Debug("public key callback", zap.String("user", conn.User()))
 	user, err := s.keyRegister.Find(conn, key)
 	if err != nil {
 		s.logger.Info("unknown user", zap.Error(err))

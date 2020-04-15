@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 
+	"github.com/vmihailenco/msgpack/v4"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/sync/errgroup"
@@ -40,6 +41,28 @@ func (c *ClientStream) Recv() (*Packet, error) {
 		return nil, io.EOF
 	}
 	return p, nil
+}
+
+func (c *ClientStream) SendMsgPack(v interface{}) error {
+	data, err := msgpack.Marshal(v)
+	if err != nil {
+		return xerrors.Errorf("failed to marshal msgpack: %w", err)
+	}
+	c.request <- &Packet{Data: data}
+	return nil
+}
+
+func (c *ClientStream) RecvMsgPack(out interface{}) error {
+	p := <-c.response
+	if p == nil {
+		return io.EOF
+	}
+
+	if err := msgpack.Unmarshal(p.Data, out); err != nil {
+		return xerrors.Errorf("failed to unmarshal msgpack: %w", err)
+	}
+
+	return nil
 }
 
 func (c *ClientStream) Close() error {
