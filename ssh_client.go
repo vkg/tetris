@@ -74,6 +74,7 @@ func (c *SSHClient) NewStreamSession(ctx context.Context, name string, sendQueSi
 		if sess.StartStream(ctx, logger); err != nil {
 			logger.Error("client stream results in fail", zap.Error(err))
 		}
+		sess.Close()
 	}()
 
 	c.sessions[name] = sess

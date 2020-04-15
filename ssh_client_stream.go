@@ -5,6 +5,7 @@ import (
 	"io"
 
 	"github.com/vmihailenco/msgpack/v4"
+	"go.uber.org/atomic"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/sync/errgroup"
@@ -18,6 +19,7 @@ type ClientStream struct {
 	reader   io.Reader
 	request  chan *Packet
 	response chan *Packet
+	closed   *atomic.Bool
 }
 
 func newClientStream(session *ssh.Session, writer io.WriteCloser, reader io.Reader, sendQueSize, recvQueSize int) *ClientStream {
@@ -27,15 +29,22 @@ func newClientStream(session *ssh.Session, writer io.WriteCloser, reader io.Read
 		reader:   reader,
 		request:  make(chan *Packet, sendQueSize),
 		response: make(chan *Packet, recvQueSize),
+		closed:   atomic.NewBool(false),
 	}
 }
 
 func (c *ClientStream) Send(p *Packet) error {
+	if c.closed.Load() {
+		return io.EOF
+	}
 	c.request <- p
 	return nil
 }
 
 func (c *ClientStream) Recv() (*Packet, error) {
+	if c.closed.Load() {
+		return nil, io.EOF
+	}
 	p := <-c.response
 	if p == nil {
 		return nil, io.EOF
@@ -48,14 +57,13 @@ func (c *ClientStream) SendMsgPack(v interface{}) error {
 	if err != nil {
 		return xerrors.Errorf("failed to marshal msgpack: %w", err)
 	}
-	c.request <- &Packet{Data: data}
-	return nil
+	return c.Send(&Packet{Data: data})
 }
 
 func (c *ClientStream) RecvMsgPack(out interface{}) error {
-	p := <-c.response
-	if p == nil {
-		return io.EOF
+	p, err := c.Recv()
+	if err != nil {
+		return err
 	}
 
 	if err := msgpack.Unmarshal(p.Data, out); err != nil {
@@ -66,9 +74,13 @@ func (c *ClientStream) RecvMsgPack(out interface{}) error {
 }
 
 func (c *ClientStream) Close() error {
-	close(c.request)
-	close(c.response)
-	return c.session.Close()
+	var err error
+	if c.closed.CAS(false, true) {
+		close(c.request)
+		close(c.response)
+		err = c.session.Close()
+	}
+	return err
 }
 
 func (c *ClientStream) StartStream(ctx context.Context, logger *zap.Logger) error {
@@ -81,7 +93,12 @@ func (c *ClientStream) StartStream(ctx context.Context, logger *zap.Logger) erro
 			if p == nil {
 				return nil
 			}
-			if err := p.Write(c.writer); err != nil {
+			err := p.Write(c.writer)
+			switch {
+			case xerrors.Is(err, io.EOF):
+				logger.Debug("write channel is closed")
+				return nil
+			case err != nil:
 				logger.Error("failed to write to client stream", zap.Error(err), zap.Any("request", p))
 				return xerrors.Errorf("failed to write to stream: %w", err)
 			}
@@ -93,6 +110,7 @@ func (c *ClientStream) StartStream(ctx context.Context, logger *zap.Logger) erro
 		for {
 			p, err := ReadPacket(c.reader)
 			if xerrors.Is(err, io.EOF) {
+				logger.Debug("recv channel is closed")
 				return nil
 			}
 			if err != nil {
@@ -103,5 +121,7 @@ func (c *ClientStream) StartStream(ctx context.Context, logger *zap.Logger) erro
 		}
 	})
 
-	return eg.Wait()
+	err := eg.Wait()
+	logger.Debug("client stream closed", zap.Error(err))
+	return err
 }

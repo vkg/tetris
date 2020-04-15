@@ -49,7 +49,12 @@ func (ss *ServerStream) startStream(ctx context.Context, logger *zap.Logger) err
 					return nil
 				}
 				logger.Debug("send response", zap.Int("length", len(p.Data)))
-				if err := p.Write(ss.channel); err != nil {
+				err := p.Write(ss.channel)
+				switch {
+				case xerrors.Is(err, io.EOF):
+					logger.Info("write channel is closed")
+					return nil
+				case err != nil:
 					logger.Error("failed to write to server stream", zap.Error(err), zap.Any("request", p))
 					return xerrors.Errorf("failed to write to stream: %w", err)
 				}
@@ -99,14 +104,13 @@ func (ss *ServerStream) SendMsgPack(v interface{}) error {
 	if err != nil {
 		return xerrors.Errorf("failed to marshal msgpack: %w", err)
 	}
-	ss.request <- &Packet{Data: data}
-	return nil
+	return ss.Send(&Packet{Data: data})
 }
 
 func (ss *ServerStream) RecvMsgPack(out interface{}) error {
-	p := <-ss.response
-	if p == nil {
-		return io.EOF
+	p, err := ss.Recv()
+	if err != nil {
+		return err
 	}
 
 	if err := msgpack.Unmarshal(p.Data, out); err != nil {
